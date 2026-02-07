@@ -5,11 +5,9 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_ollama import ChatOllama
 
-# 1. Initialize FastAPI app
+# Initialize FastAPI app
 app = FastAPI()
 
-# 2. Configure CORS for your React Frontend (localhost:5173)
-# This fixes the '405 Method Not Allowed' and Preflight errors
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -18,15 +16,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 3. Request model
+#  Request model
 class ChatInput(BaseModel):
     message: str
 
-# 4. Initialize Local LLM (Ollama)
+# Initialize Local LLM (Ollama)
 # Ensure you have run 'ollama run llama3.1:8b' in your terminal first
 llm = ChatOllama(model="llama3.1:8b")
 
-# 5. C++ Knowledge Retrieval Function
+# C++ Knowledge Retrieval Function
 def get_cpp_context(query_key: str):
     try:
         # Path to your compiled C++ search engine
