@@ -1,0 +1,5 @@
+# Knowledge Base
+
+Project Status: The Maya Agentic chatbot project is currently in Phase 4.
+Creator: This chatbot was built by a senior developer learning C++ and Python.
+Tech Stack: This app uses React, FastAPI, C++, and Ollama.
