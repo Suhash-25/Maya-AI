@@ -3,62 +3,64 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cmath>
+#include <map>
+#include <sstream>
 
-// Function to convert string to lowercase for better matching
-std::string toLower(std::string data) {
-    std::transform(data.begin(), data.end(), data.begin(), ::tolower);
-    return data;
+std::string clean(std::string s) {
+    std::string res;
+    for (char c : s) if (isalnum(c)) res += tolower(c);
+    return res;
 }
 
-// Basic Sentiment Analysis Logic
-std::string analyzeSentiment(std::string query) {
-    std::vector<std::string> positive = {"happy", "great", "cool", "love", "yes", "work", "finally"};
-    std::vector<std::string> negative = {"error", "bad", "stop", "no", "fix", "stuck", "hard"};
+// ELITE MATH: Cosine Similarity
+// Formula: (A . B) / (||A|| * ||B||)
+double getSimilarity(std::string s1, std::string s2) {
+    std::map<std::string, int> f1, f2;
+    std::string w;
+    std::stringstream ss1(s1), ss2(s2);
     
-    int score = 0;
-    std::string lowerQuery = toLower(query);
+    while (ss1 >> w) f1[clean(w)]++;
+    while (ss2 >> w) f2[clean(w)]++;
 
-    for (const auto& word : positive) {
-        if (lowerQuery.find(word) != std::string::npos) score++;
+    double dot = 0, m1 = 0, m2 = 0;
+    for (auto const& [word, count] : f1) {
+        dot += count * f2[word];
+        m1 += std::pow(count, 2);
     }
-    for (const auto& word : negative) {
-        if (lowerQuery.find(word) != std::string::npos) score--;
-    }
+    for (auto const& [word, count] : f2) m2 += std::pow(count, 2);
 
-    if (score > 0) return "User is feeling POSITIVE/EXCITED.";
-    if (score < 0) return "User is feeling FRUSTRATED/STUCK.";
-    return "User mood is NEUTRAL.";
+    if (m1 == 0 || m2 == 0) return 0;
+    return dot / (std::sqrt(m1) * std::sqrt(m2));
+}
+
+std::string getVibe(std::string q) {
+    std::vector<std::string> pos = {"happy", "great", "cool", "love", "yes", "work", "finally", "done"};
+    std::vector<std::string> neg = {"error", "bad", "stop", "no", "fix", "stuck", "hard", "bug"};
+    int s = 0;
+    for (auto w : pos) if (q.find(w) != std::string::npos) s++;
+    for (auto w : neg) if (q.find(w) != std::string::npos) s--;
+    return (s > 0) ? "POSITIVE" : (s < 0) ? "FRUSTRATED" : "NEUTRAL";
 }
 
 int main(int argc, char* argv[]) {
     if (argc < 2) return 1;
+    std::string query;
+    for (int i = 1; i < argc; ++i) query += std::string(argv[i]) + " ";
 
-    // Build query from arguments
-    std::string query = "";
-    for (int i = 1; i < argc; ++i) {
-        query += argv[i];
-        if (i < argc - 1) query += " ";
-    }
-
-    // 1. Keyword Search in knowledge.txt
     std::ifstream file("knowledge.txt");
-    std::string line;
-    std::string foundFact = "No specific local data found.";
+    std::string line, bestMatch = "No specific local data found.";
+    double maxSim = 0.25;
 
     while (std::getline(file, line)) {
         if (line.empty() || line[0] == '#') continue;
-        if (toLower(line).find(toLower(query)) != std::string::npos) {
-            foundFact = line;
-            break; 
+        double sim = getSimilarity(query, line);
+        if (sim > maxSim) {
+            maxSim = sim;
+            bestMatch = line;
         }
     }
 
-    // 2. Perform Sentiment Analysis
-    std::string sentiment = analyzeSentiment(query);
-
-    // 3. Output combined data for Python to read
-    // Format: [FACT] | [SENTIMENT]
-    std::cout << foundFact << " | " << sentiment << std::endl;
-
+    std::cout << bestMatch << " | " << getVibe(query) << std::endl;
     return 0;
 }
