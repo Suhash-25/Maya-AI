@@ -1,11 +1,11 @@
 import subprocess
 import os
+import sqlite3
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_ollama import ChatOllama
 
-# Initialize FastAPI app
 app = FastAPI()
 
 app.add_middleware(
@@ -16,26 +16,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-#  Request model
 class ChatInput(BaseModel):
     message: str
 
-# Initialize Local LLM (Ollama)
-# Ensure you have run 'ollama run llama3.1:8b' in your terminal first
+def init_db():
+    conn = sqlite3.connect('memory.db')
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS profile 
+                      (key TEXT PRIMARY KEY, value TEXT)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS history 
+                      (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                       role TEXT, content TEXT)''')
+    cursor.execute("INSERT OR IGNORE INTO profile (key, value) VALUES ('name', 'Suhash')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
 llm = ChatOllama(model="llama3.1:8b")
 
-# C++ Knowledge Retrieval Function
-def get_cpp_context(query_key: str):
+def get_cpp_intelligence(query_key: str):
     try:
-        # Path to your compiled C++ search engine
         exe_path = os.path.join("data_engine", "search.exe")
-        
-        # Security: check if exe exists
         if not os.path.exists(exe_path):
-            return "Local search engine not found."
+            return "No data found. | User mood is NEUTRAL."
 
-        # Run search.exe and capture the output
-        # Using encoding='utf-8' for multilingual support
         result = subprocess.run(
             [exe_path, query_key], 
             capture_output=True, 
@@ -43,48 +48,63 @@ def get_cpp_context(query_key: str):
             encoding='utf-8',
             timeout=5
         )
+        # Returns: "Fact | Sentiment"
         return result.stdout.strip()
-    except subprocess.TimeoutExpired:
-        return "Search timed out."
-    except Exception as e:
-        print(f"Internal Search Error: {e}")
-        return "No local context."
+    except Exception:
+        return "No data found. | User mood is NEUTRAL."
 
-# 6. Chat Endpoint
+@app.get("/profile")
+async def get_profile():
+    conn = sqlite3.connect('memory.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM profile WHERE key='name'")
+    name = cursor.fetchone()
+    conn.close()
+    return {"name": name[0] if name else "User"}
+
 @app.post("/chat")
 async def chat(input_data: ChatInput):
     user_message = input_data.message
-
-    # Step A: Perform high-speed lookup using the C++ module
-    local_fact = get_cpp_context(user_message)
     
-    # Step B: Construct the Agentic System Prompt
-    # This instructs the LLM to prioritize your 'knowledge.txt' facts
+    conn = sqlite3.connect('memory.db')
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO history (role, content) VALUES (?, ?)", ("user", user_message))
+    
+    cursor.execute("SELECT value FROM profile WHERE key='name'")
+    user_name = cursor.fetchone()[0]
+
+    # C++ Intelligence Call
+    cpp_output = get_cpp_intelligence(user_message)
+    
+    # Split the output safely
+    if "|" in cpp_output:
+        local_fact, user_mood = cpp_output.split("|", 1)
+    else:
+        local_fact, user_mood = cpp_output, "User mood is NEUTRAL."
+
     system_prompt = f"""
-    You are Maya, a powerful, professional AI assistant built by Suhash. 
-    KNOWLEDGE BASE TRUTH: {local_fact}
+    You are Maya, a powerful, professional AI assistant built by Suhash.
+    USER NAME: {user_name}
+    GROUND TRUTH: {local_fact.strip()}
+    OBSERVED VIBE: {user_mood.strip()}
     
     INSTRUCTIONS:
-    1. If KNOWLEDGE BASE TRUTH is relevant, use it as the primary source of truth.
-    2. If it is 'No specific local data found', use your general knowledge.
-    3. Stay in character: helpful, tech-savvy, and concise.
+    1. Adapt your tone to the OBSERVED VIBE. If the user is frustrated, be supportive. If happy, be hype.
+    2. Mention the user's name ({user_name}) naturally.
+    3. Use GROUND TRUTH for technical project details.
     """
     
     try:
-        # Step C: Generate response with Ollama
         response = await llm.ainvoke([
             ("system", system_prompt),
             ("user", user_message)
         ])
         
-        # Step D: Return CLEAN text to the React Frontend
-        return {"reply": str(response.content)}
+        cursor.execute("INSERT INTO history (role, content) VALUES (?, ?)", ("bot", response.content))
+        conn.commit()
+        conn.close()
         
-    except Exception as e:
-        print(f"Ollama Error: {e}")
-        raise HTTPException(status_code=500, detail="Local LLM is offline. Check Ollama status.")
-
-# Optional: Root endpoint to verify server is alive
-@app.get("/")
-async def root():
-    return {"status": "Maya Backend is Online"}
+        return {"reply": str(response.content)}
+    except Exception:
+        conn.close()
+        raise HTTPException(status_code=500, detail="Ollama Error")
