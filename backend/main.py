@@ -1,11 +1,21 @@
 import subprocess
 import os
 import sqlite3
+import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from langchain_ollama import ChatOllama
-from langchain_community.tools import DuckDuckGoSearchRun
+
+# Optional imports for Ollama and DuckDuckGo tool. If unavailable, fall back.
+try:
+    from langchain_ollama import ChatOllama
+except Exception:
+    ChatOllama = None
+
+try:
+    from langchain_community.tools import DuckDuckGoSearchRun
+except Exception:
+    DuckDuckGoSearchRun = None
 
 app = FastAPI()
 
@@ -33,8 +43,33 @@ def init_db():
 
 init_db()
 
-llm = ChatOllama(model="llama3.1:8b")
-search_tool = DuckDuckGoSearchRun()
+# Initialize LLM (Ollama) if available, otherwise use a simple fallback.
+llm = None
+if ChatOllama is not None:
+    try:
+        llm = ChatOllama(model="llama3.1:8b")
+    except Exception as e:
+        logging.warning(f"Failed to initialize ChatOllama: {e}")
+
+if llm is None:
+    class _DummyResponse:
+        def __init__(self, content: str):
+            self.content = content
+
+    class _DummyLLM:
+        async def ainvoke(self, messages):
+            # Very small, safe fallback response.
+            return _DummyResponse("Ollama unavailable — using fallback response.")
+
+    llm = _DummyLLM()
+
+# Initialize search tool if available
+search_tool = None
+if DuckDuckGoSearchRun is not None:
+    try:
+        search_tool = DuckDuckGoSearchRun()
+    except Exception as e:
+        logging.warning(f"Failed to initialize DuckDuckGoSearchRun: {e}")
 
 def get_cpp_intelligence(query_key: str):
     try:
