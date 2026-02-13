@@ -8,6 +8,7 @@ function App() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [activeSteps, setActiveSteps] = useState([]); // State for processing steps
   const scrollRef = useRef(null);
   const recognitionRef = useRef(null);
 
@@ -23,6 +24,12 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [history, loading, activeSteps]);
+
   const speak = (text) => {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
@@ -33,20 +40,40 @@ function App() {
   };
 
   const sendMessage = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || loading) return;
+    
     setHistory(prev => [...prev, { role: 'user', content: input }]);
     setLoading(true);
+    setActiveSteps([]); // Reset steps for new request
+    const currentInput = input;
     setInput("");
 
     try {
       const { data } = await axios.post('http://localhost:8080/chat', {
-        prompt: input,
-        session_id: "suhash_master"
+        message: currentInput
       });
-      setHistory(prev => [...prev, { role: 'maya', content: data.response, source: data.source }]);
-      speak(data.response);
-    } catch { console.error("Maya Offline."); } 
-    finally { setLoading(false); }
+
+      // Catch steps from backend
+      if (data.steps) {
+        setActiveSteps(data.steps);
+      }
+
+      // Small delay to let user see the final processing step
+      setTimeout(() => {
+        setHistory(prev => [...prev, { 
+            role: 'maya', 
+            content: data.reply || data.response, 
+            source: data.source 
+        }]);
+        speak(data.reply || data.response);
+        setLoading(false);
+        setActiveSteps([]); // Clear steps after message arrives
+      }, 1000);
+
+    } catch {
+      console.error("Maya Offline.");
+      setLoading(false);
+    }
   };
 
   return (
@@ -57,12 +84,13 @@ function App() {
       </div>
 
       <main className="main-chat">
-        <header className="header">MAYA • LIVE AGENT</header>
+        <header className="header">MAYA AI • LIVE AGENT</header>
+        
         <div className="chat-window" ref={scrollRef}>
           {history.length === 0 ? (
             <div className="welcome-screen">
               <h1>Welcome, Suhash.</h1>
-              <p>Real-time data feed is active. Testing Today's Facts...</p>
+              <p>Real-time data feed is active. Ask me anything about today.</p>
             </div>
           ) : (
             history.map((msg, i) => (
@@ -74,14 +102,44 @@ function App() {
               </div>
             ))
           )}
-          {loading && <div className="shimmer-line" style={{width: '240px', margin: '20px'}}></div>}
+
+          {/* Processing Steps & Typing Indicator */}
+          {loading && (
+            <div className="maya-msg">
+              <div className="bubble maya-bubble">
+                <div className="steps-list">
+                  <AnimatePresence>
+                    {activeSteps.map((step, index) => (
+                      <motion.div 
+                        key={index}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="step-item"
+                      >
+                        <span className="step-icon">{step.icon}</span>
+                        <span className="step-text">{step.status}</span>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </div>
+                <div className="typing-dots">
+                  <span></span><span></span><span></span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="input-area">
           <div className="input-pill">
             <button className={`icon-btn ${isListening ? 'active-mic' : ''}`} onClick={() => { setIsListening(true); recognitionRef.current.start(); }}>🎤</button>
-            <input placeholder="Ask Maya anything..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} />
-            <button className="send-btn" onClick={sendMessage}>Send</button>
+            <input 
+              placeholder="Ask Maya anything...." 
+              value={input} 
+              onChange={(e) => setInput(e.target.value)} 
+              onKeyDown={(e) => e.key === 'Enter' && sendMessage()} 
+            />
+            <button className="send-btn" onClick={sendMessage} disabled={loading}>Send</button>
           </div>
         </div>
       </main>
