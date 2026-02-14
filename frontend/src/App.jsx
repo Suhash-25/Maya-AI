@@ -8,9 +8,11 @@ function App() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [activeSteps, setActiveSteps] = useState([]); // State for processing steps
+  const [activeSteps, setActiveSteps] = useState([]); 
   const scrollRef = useRef(null);
   const recognitionRef = useRef(null);
+  const [attachedFile, setAttachedFile] = useState(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -39,20 +41,41 @@ function App() {
     window.speechSynthesis.speak(utterance);
   };
 
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) setAttachedFile(file);
+  };
+
+  const convertToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
     
+    let base64Image = null;
+    if (attachedFile && attachedFile.type.startsWith('image/')) {
+      base64Image = await convertToBase64(attachedFile);
+    }
+
     setHistory(prev => [...prev, { role: 'user', content: input }]);
     setLoading(true);
-    setActiveSteps([]); // Reset steps for new request
+    setActiveSteps([]); 
     const currentInput = input;
     setInput("");
+    setAttachedFile(null);
 
     try {
       const { data } = await axios.post('http://localhost:8080/chat', {
-        message: currentInput
+        message: currentInput,
+        image: base64Image
       });
-
+      
       // Catch steps from backend
       if (data.steps) {
         setActiveSteps(data.steps);
@@ -67,7 +90,7 @@ function App() {
         }]);
         speak(data.reply || data.response);
         setLoading(false);
-        setActiveSteps([]); // Clear steps after message arrives
+        setActiveSteps([]);
       }, 1000);
 
     } catch {
@@ -103,24 +126,26 @@ function App() {
             ))
           )}
 
-          {/* Processing Steps & Typing Indicator */}
-          {loading && (
-            <div className="maya-msg">
-              <div className="bubble maya-bubble">
-                <div className="steps-list">
-                  <AnimatePresence>
-                    {activeSteps.map((step, index) => (
-                      <motion.div 
-                        key={index}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="step-item"
-                      >
-                        <span className="step-icon">{step.icon}</span>
-                        <span className="step-text">{step.status}</span>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
+          {/* GEMINI-STYLE PROCESSING STEPS */}
+        {loading && (
+          <div className="maya-msg">
+            <div className="bubble maya-bubble thinking-state">
+              <div className="steps-container">
+                <AnimatePresence>
+                  {activeSteps.map((step, idx) => (
+                    <motion.div 
+                      key={step.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.2 }}
+                      className="step-row"
+                    >
+                      <span className="step-icon">{step.icon}</span>
+                      <span className="step-text">{step.status}</span>
+                    </motion.div>
+                  ))}
+                  
+                </AnimatePresence>
                 </div>
                 <div className="typing-dots">
                   <span></span><span></span><span></span>
@@ -129,12 +154,20 @@ function App() {
             </div>
           )}
         </div>
-
+      
         <div className="input-area">
           <div className="input-pill">
+            <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
+            <button className="icon-btn" onClick={() => fileInputRef.current?.click()}>📎</button>
             <button className={`icon-btn ${isListening ? 'active-mic' : ''}`} onClick={() => { setIsListening(true); recognitionRef.current.start(); }}>🎤</button>
+            {attachedFile && (
+              <div className="file-tag">
+                {attachedFile.name.substring(0, 10)}...
+                <button onClick={() => setAttachedFile(null)}>×</button>
+              </div>
+            )}
             <input 
-              placeholder="Ask Maya anything...." 
+              placeholder={attachedFile ? "Ask about this file..." : "Ask Maya anything...."} 
               value={input} 
               onChange={(e) => setInput(e.target.value)} 
               onKeyDown={(e) => e.key === 'Enter' && sendMessage()} 

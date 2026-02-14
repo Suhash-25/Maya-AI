@@ -185,3 +185,116 @@
   color: #4285f4;
   font-weight: bold;
 }
+
+.steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: #a0a0a0;
+}
+
+.step-icon {
+  font-size: 1rem;
+}
+
+.typing-dots {
+  display: flex;
+  gap: 4px;
+  padding: 5px 0;
+}
+
+.typing-dots span {
+  width: 6px;
+  height: 6px;
+  background: #4285f4;
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1.0); }
+}
+
+.thinking-state {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(66, 133, 244, 0.2);
+  padding: 15px;
+}
+
+.steps-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.9rem;
+  color: #bdc1c6;
+}
+
+.step-icon {
+  font-size: 1.1rem;
+}
+
+.gemini-shimmer {
+  margin-top: 15px;
+  height: 4px;
+  width: 100%;
+  background: linear-gradient(90deg, #4285f4, #9b72cb, #d96570, #4285f4);
+  background-size: 200% 100%;
+  animation: shimmerMove 2s infinite linear;
+  border-radius: 2px;
+}
+
+@keyframes shimmerMove {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.file-preview-tag {
+  background: rgba(45, 90, 240, 0.2);
+  border: 1px solid var(--nebula-accent);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 10px;
+}
+
+.file-preview-tag button {
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.utility-icon.active-file {
+  color: var(--nebula-accent);
+  filter: drop-shadow(0 0 5px var(--nebula-accent));
+}
+
+.input-pill-inner {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}

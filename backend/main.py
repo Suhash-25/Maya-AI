@@ -3,14 +3,18 @@ import os
 import sqlite3
 import logging
 import uvicorn
+from fastapi import UploadFile, File
+import shutil
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-
 from langchain_ollama import ChatOllama
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+import base64
+from fastapi import UploadFile, File
+from io import BytesIO
 
 app = FastAPI()
 
@@ -21,8 +25,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
 class ChatInput(BaseModel):
     message: str
+    image: str | None = None
 
 def init_db():
     conn = sqlite3.connect('memory.db')
@@ -61,22 +71,31 @@ def get_cpp_intelligence(query_key: str):
         return result.stdout.strip()
     except Exception:
         return "No data found. | User mood is NEUTRAL."
+    
+@app.get("/")
+async def health_check():
+    return {"status": "Maya Backend is Live on 8080"}
 
 @app.post("/chat")
 async def chat(input_data: ChatInput):
     user_message = input_data.message
+    image_data = input_data.image
     steps = []
-    
-    steps.append({"id": 1, "status": "Checking local memory...", "icon": "🧠"})
-    cpp_output = get_cpp_intelligence(user_message)
-    parts = cpp_output.split(" | ")
-    local_fact = parts[0]
-    user_mood = parts[1] if len(parts) > 1 else "NEUTRAL"
     
     conn = sqlite3.connect('memory.db')
     cursor = conn.cursor()
     cursor.execute("SELECT value FROM profile WHERE key='name'")
     user_name = cursor.fetchone()[0]
+
+    if image_data:
+        steps.append({"id": 1, "status": "Analyzing visual input...", "icon": "👁️"})
+    else:
+        steps.append({"id": 1, "status": "Checking local memory...", "icon": "🧠"})
+    
+    cpp_output = get_cpp_intelligence(user_message)
+    parts = cpp_output.split(" | ")
+    local_fact = parts[0]
+    user_mood = parts[1] if len(parts) > 1 else "NEUTRAL"
 
     system_prompt = f"""
     ROLE: You are Maya, a live-data agent. User: {user_name}.
@@ -90,11 +109,23 @@ async def chat(input_data: ChatInput):
     - Be concise and savvy.
     """
 
-    messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
+    if image_data:
+        message_content = [
+            {"type": "text", "text": user_message},
+            {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_data}"}
+        ]
+        messages = [SystemMessage(content=system_prompt), HumanMessage(content=message_content)]
+    else:
+        messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
 
     try:
-        steps.append({"id": 2, "status": "Analyzing request...", "icon": "🔍"})
-        ai_msg = await llm.ainvoke(messages)
+        if image_data:
+            steps.append({"id": 2, "status": "Processing with vision model...", "icon": "🔍"})
+            vision_llm = ChatOllama(model="llama3.2-vision")
+            ai_msg = await vision_llm.ainvoke(messages)
+        else:
+            steps.append({"id": 2, "status": "Analyzing request...", "icon": "🔍"})
+            ai_msg = await llm.ainvoke(messages)
         messages.append(ai_msg)
 
         if ai_msg.tool_calls:
@@ -118,6 +149,15 @@ async def chat(input_data: ChatInput):
     except Exception as e:
         if 'conn' in locals(): conn.close()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    if file.filename:
+        file_path = os.path.join(UPLOAD_DIR, file.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        return {"filename": file.filename, "status": "File indexed for analysis"}
+    return {"error": "No filename provided"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8080)
