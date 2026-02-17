@@ -14,8 +14,6 @@ from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 import base64
 from typing import Optional
-from fastapi import UploadFile, File
-from io import BytesIO
 
 app = FastAPI()
 
@@ -29,8 +27,6 @@ app.add_middleware(
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
 
 class ChatInput(BaseModel):
     message: str
@@ -51,22 +47,12 @@ init_db()
 
 search_tool = DuckDuckGoSearchRun()
 
-class _DummyResponse:
-    def __init__(self):
-        self.content = 'Ollama unavailable'
-        self.tool_calls = []
-
-class _DummyLLM:
-    async def ainvoke(self, messages):
-        return _DummyResponse()
-
+# Define models globally to be reused
 try:
     llm = ChatOllama(model="llama3.1:8b", temperature=0).bind_tools([search_tool])
-    vision_llm = ChatOllama(model="llama3.2-vision", temperature=0)
+    vision_llm = ChatOllama(model="llama3.2-vision", temperature=0.0)
 except Exception as e:
-    logging.error(f"Failed to bind tools: {e}")
-    llm = _DummyLLM()
-    vision_llm = _DummyLLM()
+    logging.error(f"Failed to initialize models: {e}")
 
 def get_cpp_intelligence(query_key: str):
     try:
@@ -87,28 +73,16 @@ async def chat(input_data: ChatInput):
     image_b64 = input_data.image
     steps = []
     
-    if image_b64:
-        steps.append({"id": 1, "status": "Analyzing visual input...", "icon": "👁️"}) #
-        active_llm = vision_llm
-        # Multimodal message format
-        human_message = HumanMessage(content=[
-            {"type": "text", "text": user_message},
-            {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_b64}"}
-        ])
-    else:
-        steps.append({"id": 1, "status": "Checking local memory...", "icon": "🧠"}) #
-        active_llm = llm
-        human_message = HumanMessage(content=user_message)
+    # 1. Gather Context
+    cpp_output = get_cpp_intelligence(user_message)
+    parts = cpp_output.split(" | ")
+    local_fact = parts[0]
+    user_mood = parts[1] if len(parts) > 1 else "NEUTRAL"
     
     conn = sqlite3.connect('memory.db')
     cursor = conn.cursor()
     cursor.execute("SELECT value FROM profile WHERE key='name'")
     user_name = cursor.fetchone()[0]
-    
-    cpp_output = get_cpp_intelligence(user_message)
-    parts = cpp_output.split(" | ")
-    local_fact = parts[0]
-    user_mood = parts[1] if len(parts) > 1 else "NEUTRAL"
 
     system_prompt = f"""
     ROLE: You are Maya, a live-data agent. User: {user_name}.
@@ -120,39 +94,66 @@ async def chat(input_data: ChatInput):
     - Use the search tool for ANY real-time info.
     - If you find data, summarize it accurately.
     - Be concise and savvy.
-    - Do not tell the user for the recommendations, just give the answer if you know it. Only use the search tool if you don't know the answer.
+    - Do not suggest recommendations; just give the answer. Use the search tool only if you don't know the answer.
     """
 
+    # 2. Build Messages based on input type
     if image_b64:
-        message_content = [
-            {"type": "text", "text": user_message},
+        steps.append({"id": 1, "status": "Performing Deep OCR Analysis...", "icon": "👁️"})
+        active_llm = vision_llm
+        
+        vision_prompt = """
+You are an Advanced Multimodal Intelligence specialized in high-precision visual analysis.
+Your goal is to perform a granular extraction of all data within the provided image.
+
+PHASE 1: CLASSIFICATION
+Identify the exact nature of this image (e.g., Official Government Document, Handwritten Note, Schematic, Screenshot, Landscape, etc.). 
+If it is a document, identify the primary language (e.g., Kannada, English, Hindi) and the issuing authority.
+
+PHASE 2: DETAILED EXTRACTION
+- TEXT (OCR): Extract every word with 100% fidelity. Maintain the original layout and hierarchy (headers, subheaders, body text).
+- ENTITIES: Identify and list specific names, dates, identification numbers, monetary values, and locations.
+- VISUALS: Describe any emblems, seals, stamps, barcodes, or signatures. Note if a signature appears digital or physical.
+- NON-ENGLISH TEXT: Provide a direct word-for-word translation for any non-English scripts detected.
+
+PHASE 3: VERIFICATION
+Review the extracted data against the raw image to ensure no 'hallucinations' or misreadings occurred.
+
+FINAL OUTPUT:
+Provide a precise, factual breakdown. Do not be conversational. 
+If the image is low quality, state exactly which parts are illegible rather than guessing.
+"""
+    
+        steps.append({"id": 2, "status": "Processing visual input...", "icon": "🖼️"})
+        content = [
+            {"type": "text", "text": f"{vision_prompt}\nUser Question: {user_message}"},
             {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_b64}"}
         ]
-        messages = [SystemMessage(content=system_prompt), HumanMessage(content=message_content)]
+        messages = [SystemMessage(content=system_prompt), HumanMessage(content=content)]
     else:
+        steps.append({"id": 1, "status": "Checking local memory...", "icon": "🧠"})
+        active_llm = llm
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
 
     try:
-        if image_b64:
-            steps.append({"id": 2, "status": "Processing with vision model...", "icon": "🔍"})
-            vision_llm = ChatOllama(model="llama3.2-vision")
-            ai_msg = await vision_llm.ainvoke(messages)
-        else:
-            steps.append({"id": 2, "status": "Analyzing request...", "icon": "🔍"})
-            ai_msg = await llm.ainvoke(messages)
+        # 3. First Inference
+        steps.append({"id": 2, "status": "Analyzing request...", "icon": "🔍"})
+        ai_msg = await active_llm.ainvoke(messages)
         messages.append(ai_msg)
 
-        if ai_msg.tool_calls:
+        # 4. Handle Tool Calls (Only for non-vision or if vision model supports tools)
+        if hasattr(ai_msg, 'tool_calls') and ai_msg.tool_calls:
             steps.append({"id": 3, "status": "Searching the live web...", "icon": "🌐"})
             for tool_call in ai_msg.tool_calls:
                 search_result = search_tool.run(tool_call["args"]["query"])
                 messages.append(ToolMessage(content=search_result, tool_call_id=tool_call["id"]))
             
             steps.append({"id": 4, "status": "Synthesizing answer...", "icon": "✨"})
-            ai_msg = await llm.ainvoke(messages)
+            ai_msg = await active_llm.ainvoke(messages)
         else:
             steps.append({"id": 3, "status": "Generating response...", "icon": "✨"})
 
+        # 5. Persistent History
         cursor.execute("INSERT INTO history (role, content) VALUES (?, ?)", ("user", user_message))
         cursor.execute("INSERT INTO history (role, content) VALUES (?, ?)", ("bot", ai_msg.content))
         conn.commit()
@@ -162,16 +163,17 @@ async def chat(input_data: ChatInput):
 
     except Exception as e:
         if 'conn' in locals(): conn.close()
+        logging.error(f"Chat Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    if file.filename:
-        file_path = os.path.join(UPLOAD_DIR, file.filename)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        return {"filename": file.filename, "status": "File indexed for analysis"}
-    return {"error": "No filename provided"}
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    return {"filename": file.filename, "status": "File indexed for analysis"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8080)
