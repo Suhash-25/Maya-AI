@@ -59,11 +59,13 @@ function App() {
     if (!input.trim() || loading) return;
 
     let base64Image = null;
+    let imagePreview = null;
     if (attachedFile && attachedFile.type.startsWith('image/')) {
+      imagePreview = URL.createObjectURL(attachedFile);
       base64Image = await convertToBase64(attachedFile);
     }
 
-    setHistory(prev => [...prev, { role: 'user', content: input }]);
+    setHistory(prev => [...prev, { role: 'user', content: input, image: imagePreview }]);
     setLoading(true);
     setActiveSteps([]);
     const currentInput = input;
@@ -126,7 +128,12 @@ function App() {
             history.map((msg, i) => (
               <div key={i} className={`message ${msg.role === 'user' ? 'user-msg' : 'maya-msg'}`}>
                 <div className={`bubble ${msg.role === 'user' ? 'user-bubble' : 'maya-bubble'}`}>
-                  {msg.content}
+                  {msg.image && (
+                    <div className="chat-image-container">
+                      <img src={msg.image} alt="User upload" className="chat-inline-image" />
+                    </div>
+                  )}
+                  <div className="text-content">{msg.content}</div>
                   {msg.source && <div className="source-tag">📡 {msg.source}</div>}
                 </div>
               </div>

@@ -114,7 +114,7 @@ PHASE 2: DETAILED EXTRACTION
 - TEXT (OCR): Extract every word with 100% fidelity. Maintain the original layout and hierarchy (headers, subheaders, body text).
 - ENTITIES: Identify and list specific names, dates, identification numbers, monetary values, and locations.
 - VISUALS: Describe any emblems, seals, stamps, barcodes, or signatures. Note if a signature appears digital or physical.
-- NON-ENGLISH TEXT: Provide a direct word-for-word translation for any non-English scripts detected.
+- NON-ENGLISH TEXT: Provide a direct word-for-word translation for any non-English scripts detected (especially Kannada).
 
 PHASE 3: VERIFICATION
 Review the extracted data against the raw image to ensure no 'hallucinations' or misreadings occurred.
