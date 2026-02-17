@@ -9,9 +9,10 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [activeSteps, setActiveSteps] = useState([]);
+  const [expandedImage, setExpandedImage] = useState(null);
+  const [attachedFile, setAttachedFile] = useState(null);
   const scrollRef = useRef(null);
   const recognitionRef = useRef(null);
-  const [attachedFile, setAttachedFile] = useState(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -110,6 +111,26 @@ function App() {
 
   return (
     <div className="app-container">
+      <AnimatePresence>
+        {expandedImage && (
+          <motion.div 
+            className="lightbox-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setExpandedImage(null)}
+          >
+            <motion.img 
+              src={expandedImage} 
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
+              className="lightbox-image"
+            />
+            <button className="lightbox-close">×</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="aurora-bg">
         <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 15, repeat: Infinity }} className="blob blob-blue" />
         <motion.div animate={{ scale: [1.2, 1, 1.2] }} transition={{ duration: 18, repeat: Infinity }} className="blob blob-purple" />
@@ -130,7 +151,7 @@ function App() {
                 <div className={`bubble ${msg.role === 'user' ? 'user-bubble' : 'maya-bubble'}`}>
                   {msg.image && (
                     <div className="chat-image-container">
-                      <img src={msg.image} alt="User upload" className="chat-inline-image" />
+                      <img src={msg.image} alt="User upload" className="chat-inline-image" onClick={() => setExpandedImage(msg.image)} />
                     </div>
                   )}
                   <div className="text-content">{msg.content}</div>

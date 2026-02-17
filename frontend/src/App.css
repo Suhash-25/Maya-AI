@@ -336,3 +336,53 @@
 .user-msg .chat-image-container {
   justify-content: flex-end;
 }
+
+/* LIGHTBOX STYLES */
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.9);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+}
+
+.lightbox-image {
+  max-width: 90%;
+  max-height: 90%;
+  border-radius: 12px;
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 30px;
+  right: 40px;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 3rem;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.lightbox-close:hover {
+  opacity: 1;
+}
+
+/* Make images look clickable */
+.chat-inline-image.clickable {
+  cursor: zoom-in;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.chat-inline-image.clickable:hover {
+  filter: brightness(1.1);
+  transform: scale(1.02);
+}
