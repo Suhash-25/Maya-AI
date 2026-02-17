@@ -13,6 +13,7 @@ from langchain_ollama import ChatOllama
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 import base64
+from typing import Optional
 from fastapi import UploadFile, File
 from io import BytesIO
 
@@ -30,9 +31,10 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
+
 class ChatInput(BaseModel):
     message: str
-    image: str | None = None
+    image: Optional[str] = None
 
 def init_db():
     conn = sqlite3.connect('memory.db')
@@ -60,9 +62,11 @@ class _DummyLLM:
 
 try:
     llm = ChatOllama(model="llama3.1:8b", temperature=0).bind_tools([search_tool])
+    vision_llm = ChatOllama(model="llama3.2-vision", temperature=0)
 except Exception as e:
     logging.error(f"Failed to bind tools: {e}")
     llm = _DummyLLM()
+    vision_llm = _DummyLLM()
 
 def get_cpp_intelligence(query_key: str):
     try:
@@ -78,19 +82,28 @@ async def health_check():
 
 @app.post("/chat")
 async def chat(input_data: ChatInput):
+    global llm, vision_llm
     user_message = input_data.message
-    image_data = input_data.image
+    image_b64 = input_data.image
     steps = []
+    
+    if image_b64:
+        steps.append({"id": 1, "status": "Analyzing visual input...", "icon": "👁️"}) #
+        active_llm = vision_llm
+        # Multimodal message format
+        human_message = HumanMessage(content=[
+            {"type": "text", "text": user_message},
+            {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_b64}"}
+        ])
+    else:
+        steps.append({"id": 1, "status": "Checking local memory...", "icon": "🧠"}) #
+        active_llm = llm
+        human_message = HumanMessage(content=user_message)
     
     conn = sqlite3.connect('memory.db')
     cursor = conn.cursor()
     cursor.execute("SELECT value FROM profile WHERE key='name'")
     user_name = cursor.fetchone()[0]
-
-    if image_data:
-        steps.append({"id": 1, "status": "Analyzing visual input...", "icon": "👁️"})
-    else:
-        steps.append({"id": 1, "status": "Checking local memory...", "icon": "🧠"})
     
     cpp_output = get_cpp_intelligence(user_message)
     parts = cpp_output.split(" | ")
@@ -104,22 +117,23 @@ async def chat(input_data: ChatInput):
     LOCAL_DATA: {local_fact}
 
     INSTRUCTIONS:
-    - Use the search tool for ANY real-time info (gold, weather, news).
+    - Use the search tool for ANY real-time info.
     - If you find data, summarize it accurately.
     - Be concise and savvy.
+    - Do not tell the user for the recommendations, just give the answer if you know it. Only use the search tool if you don't know the answer.
     """
 
-    if image_data:
+    if image_b64:
         message_content = [
             {"type": "text", "text": user_message},
-            {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_data}"}
+            {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_b64}"}
         ]
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=message_content)]
     else:
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
 
     try:
-        if image_data:
+        if image_b64:
             steps.append({"id": 2, "status": "Processing with vision model...", "icon": "🔍"})
             vision_llm = ChatOllama(model="llama3.2-vision")
             ai_msg = await vision_llm.ainvoke(messages)

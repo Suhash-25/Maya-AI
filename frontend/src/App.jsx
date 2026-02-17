@@ -8,7 +8,7 @@ function App() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [activeSteps, setActiveSteps] = useState([]); 
+  const [activeSteps, setActiveSteps] = useState([]);
   const scrollRef = useRef(null);
   const recognitionRef = useRef(null);
   const [attachedFile, setAttachedFile] = useState(null);
@@ -57,7 +57,7 @@ function App() {
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
-    
+
     let base64Image = null;
     if (attachedFile && attachedFile.type.startsWith('image/')) {
       base64Image = await convertToBase64(attachedFile);
@@ -65,7 +65,7 @@ function App() {
 
     setHistory(prev => [...prev, { role: 'user', content: input }]);
     setLoading(true);
-    setActiveSteps([]); 
+    setActiveSteps([]);
     const currentInput = input;
     setInput("");
     setAttachedFile(null);
@@ -75,7 +75,7 @@ function App() {
         message: currentInput,
         image: base64Image
       });
-      
+
       // Catch steps from backend
       if (data.steps) {
         setActiveSteps(data.steps);
@@ -83,10 +83,10 @@ function App() {
 
       // Small delay to let user see the final processing step
       setTimeout(() => {
-        setHistory(prev => [...prev, { 
-            role: 'maya', 
-            content: data.reply || data.response, 
-            source: data.source 
+        setHistory(prev => [...prev, {
+          role: 'maya',
+          content: data.reply || data.response,
+          source: data.source
         }]);
         speak(data.reply || data.response);
         setLoading(false);
@@ -99,6 +99,13 @@ function App() {
     }
   };
 
+  const handleMicClick = () => {
+    setIsListening(true);
+    if (recognitionRef.current) {
+      recognitionRef.current.start();
+    }
+  };
+
   return (
     <div className="app-container">
       <div className="aurora-bg">
@@ -108,7 +115,7 @@ function App() {
 
       <main className="main-chat">
         <header className="header">MAYA AI • LIVE AGENT</header>
-        
+
         <div className="chat-window" ref={scrollRef}>
           {history.length === 0 ? (
             <div className="welcome-screen">
@@ -127,25 +134,25 @@ function App() {
           )}
 
           {/* GEMINI-STYLE PROCESSING STEPS */}
-        {loading && (
-          <div className="maya-msg">
-            <div className="bubble maya-bubble thinking-state">
-              <div className="steps-container">
-                <AnimatePresence>
-                  {activeSteps.map((step, idx) => (
-                    <motion.div 
-                      key={step.id}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: idx * 0.2 }}
-                      className="step-row"
-                    >
-                      <span className="step-icon">{step.icon}</span>
-                      <span className="step-text">{step.status}</span>
-                    </motion.div>
-                  ))}
-                  
-                </AnimatePresence>
+          {loading && (
+            <div className="maya-msg">
+              <div className="bubble maya-bubble thinking-state">
+                <div className="steps-container">
+                  <AnimatePresence>
+                    {activeSteps.map((step, idx) => (
+                      <motion.div
+                        key={step.id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.2 }}
+                        className="step-row"
+                      >
+                        <span className="step-icon">{step.icon}</span>
+                        <span className="step-text">{step.status}</span>
+                      </motion.div>
+                    ))}
+
+                  </AnimatePresence>
                 </div>
                 <div className="typing-dots">
                   <span></span><span></span><span></span>
@@ -154,23 +161,23 @@ function App() {
             </div>
           )}
         </div>
-      
+
         <div className="input-area">
           <div className="input-pill">
-            <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
+            <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} accept="image/*" />
             <button className="icon-btn" onClick={() => fileInputRef.current?.click()}>📎</button>
-            <button className={`icon-btn ${isListening ? 'active-mic' : ''}`} onClick={() => { setIsListening(true); recognitionRef.current.start(); }}>🎤</button>
+            <button className={`icon-btn ${isListening ? 'active-mic' : ''}`} onClick={handleMicClick}>🎤</button>
             {attachedFile && (
               <div className="file-tag">
-                {attachedFile.name.substring(0, 10)}...
+                Image Attached
                 <button onClick={() => setAttachedFile(null)}>×</button>
               </div>
             )}
-            <input 
-              placeholder={attachedFile ? "Ask about this file..." : "Ask Maya anything...."} 
-              value={input} 
-              onChange={(e) => setInput(e.target.value)} 
-              onKeyDown={(e) => e.key === 'Enter' && sendMessage()} 
+            <input
+              placeholder={attachedFile ? "Ask about this file..." : "Ask Maya anything...."}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
             />
             <button className="send-btn" onClick={sendMessage} disabled={loading}>Send</button>
           </div>
