@@ -3,10 +3,9 @@ import os
 import sqlite3
 import logging
 import uvicorn
-from fastapi import UploadFile, File
+from fastapi import UploadFile, File, FastAPI, HTTPException
 import shutil
 from datetime import datetime
-from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_ollama import ChatOllama
@@ -14,7 +13,6 @@ from langchain_tavily import TavilySearch
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
-import base64
 from typing import Optional
 
 app = FastAPI()
@@ -27,7 +25,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-os.environ["TAVILY_API_KEY"] = "taivly-api-key-here"
+# ---------------------------------------------------------
+# 1. API KEYS & TOOLS INITIALIZATION
+# ---------------------------------------------------------
+# IMPORTANT: Replace with your actual Tavily API key
+os.environ["TAVILY_API_KEY"] = "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"
 
 search_tool = TavilySearch(
     max_results=3, 
@@ -42,6 +44,9 @@ class ChatInput(BaseModel):
     message: str
     image: Optional[str] = None
 
+# ---------------------------------------------------------
+# 2. DATABASE INITIALIZATION (SQLite & ChromaDB)
+# ---------------------------------------------------------
 def init_db():
     conn = sqlite3.connect('memory.db')
     cursor = conn.cursor()
@@ -55,14 +60,6 @@ def init_db():
 
 init_db()
 
-
-# Define models globally to be reused
-try:
-    llm = ChatOllama(model="llama3.1:8b", temperature=0).bind_tools([search_tool])
-    vision_llm = ChatOllama(model="llama3.2-vision", temperature=0.0)
-except Exception as e:
-    logging.error(f"Failed to initialize models: {e}")
-
 embeddings = OllamaEmbeddings(model="nomic-embed-text")
 vector_db = Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
 
@@ -70,6 +67,18 @@ def add_to_long_term_memory(text: str):
     """Indexes a new interaction into the vector database"""
     vector_db.add_texts([text])
 
+# ---------------------------------------------------------
+# 3. LLM INITIALIZATION
+# ---------------------------------------------------------
+try:
+    llm = ChatOllama(model="llama3.1:8b", temperature=0).bind_tools([search_tool])
+    vision_llm = ChatOllama(model="llama3.2-vision", temperature=0.0)
+except Exception as e:
+    logging.error(f"Failed to initialize models: {e}")
+
+# ---------------------------------------------------------
+# 4. LOCAL ENGINE
+# ---------------------------------------------------------
 def get_cpp_intelligence(query_key: str):
     try:
         exe_path = os.path.join("data_engine", "search.exe")
@@ -77,7 +86,10 @@ def get_cpp_intelligence(query_key: str):
         return result.stdout.strip()
     except Exception:
         return "No data found. | User mood is NEUTRAL."
-    
+
+# ---------------------------------------------------------
+# 5. API ENDPOINTS
+# ---------------------------------------------------------
 @app.get("/")
 async def health_check():
     return {"status": "Maya Backend is Live on 8080"}
@@ -89,12 +101,14 @@ async def chat(input_data: ChatInput):
     image_b64 = input_data.image
     steps = []
     
-    # 1. Gather Context
+    # 5a. Gather Context (Vector Memory, Local C++, SQLite)
+    steps.append({"id": 1, "status": "Querying long-term memory...", "icon": "🗄️"})
     try:
         past_context = vector_db.similarity_search(user_message, k=3)
         long_term_memory = "\n".join([doc.page_content for doc in past_context])
     except Exception:
         long_term_memory = "No prior related memories found."
+        
     cpp_output = get_cpp_intelligence(user_message)
     parts = cpp_output.split(" | ")
     local_fact = parts[0]
@@ -105,27 +119,59 @@ async def chat(input_data: ChatInput):
     cursor.execute("SELECT value FROM profile WHERE key='name'")
     user_name = cursor.fetchone()[0]
 
+    # 5b. The Elite System Prompt
     system_prompt = f"""<system_instructions>
-You are MAYA, an elite, high-precision live-data AI agent. Your primary directive is ABSOLUTE FACTUAL ACCURACY.
+You are MAYA, a highly advanced, omni-capable AI assistant. Your architecture is designed to provide flawless, expert-level answers to ANY question the user asks.
 
-[CONTEXT]
-User: {user_name}
-Current System Time: {datetime.now().strftime("%A, %b %d, %Y %I:%M %p")}
+[SYSTEM CONTEXT]
+User Name: {user_name}
+System Time: {datetime.now().strftime("%A, %b %d, %Y %I:%M %p")}
 Local Data: {local_fact}
+Past Memories: {long_term_memory}
 
-[CORE RULES - VIOLATION IS STRICTLY FORBIDDEN]
-1. ZERO HALLUCINATION: You are strictly prohibited from guessing, estimating, or inventing facts, dates, weather, or sports schedules. 
-2. LIVE TOOL DEPENDENCE: When a search tool provides results, your answer MUST be extracted 100% from those results. 
-3. MISSING DATA PROTOCOL: If the search tool returns irrelevant data, or if you do not have the exact answer in your tool context, you MUST reply EXACTLY with: "I do not have verified live data for this query." Do not attempt to guess.
-4. RUTHLESS CONCISION: Deliver the exact answer immediately. DO NOT use conversational filler. Just state the facts.
+[CORE DIRECTIVES - VIOLATION IS FORBIDDEN]
+1. EXPERTISE & TONE: You are a world-class expert in all fields (programming, science, history, etc.). Provide direct, highly accurate, and comprehensive answers. Never use conversational filler like "As an AI...".
+2. THE TWO-PATH ROUTING PROTOCOL:
+   - PATH A (General Knowledge): For programming, math, history, logic, or established facts, rely on your deep internal knowledge. Provide the answer immediately with elite formatting (Markdown, code blocks, bullet points).
+   - PATH B (Live Data): If the user asks about the weather, current events, sports scores, or anything happening TODAY, you MUST use your search tool.
+3. TOOL EXECUTION (When Path B is triggered):
+   - Extract the exact answer from the tool results. 
+   - Translate raw API formats (like wind degrees or Unix timestamps) into natural, human-readable language.
+   - For weather: Always provide the exact CURRENT temperature in Celsius (°C) unless asked otherwise.
+   - If the tool fails or returns no data, reply: "I do not have verified live data for this query."
+4. ZERO HALLUCINATION: If you do not know the answer and cannot search for it, explicitly state: "I do not have enough verified information to answer this." Never guess.
+5. MEMORY RECALL: Use 'Past Memories' to answer personal questions. NEVER say "Based on the memory..." or "Based on the tool...". Just state the fact.
 
-[EXECUTION]
-Analyze the provided context and tool results. Extract the exact requested values. Output only the final synthesized fact.
+[OUTPUT STRUCTURE]
+- Direct Answer: Start with the most direct answer to the user's prompt.
+- Elaboration: Provide the "why" and "how" with structured details if the topic is complex.
+
+[EXAMPLES]
+User: What is the weather in London?
+Elite Output: **Current Weather in London**
+* **Temperature:** 15°C
+* **Conditions:** Partly cloudy skies
+
+User: Who won the match?
+Elite Output: **Live Match Result**
+India won the match against Australia by **6 wickets**.
+
+User: What are the benefits of React?
+Elite Output: **Key Benefits of React:**
+1. **Component-Based:** Allows for reusable UI elements.
+2. **Virtual DOM:** Ensures fast rendering and better performance.
+3. **Ecosystem:** Huge community and library support.
+
+User: Write a React component.
+Elite Output: **Complex React Component**
+Here is a component using composition and context:
+```jsx
+// code here
 </system_instructions>"""
 
-    # 2. Build Messages based on input type
+    # 5c. Build Messages (Vision vs Standard Text)
     if image_b64:
-        steps.append({"id": 1, "status": "Performing Deep OCR Analysis...", "icon": "👁️"})
+        steps.append({"id": 2, "status": "Performing Deep OCR Analysis...", "icon": "👁️"})
         active_llm = vision_llm
         
         vision_prompt = """
@@ -140,7 +186,7 @@ PHASE 2: DETAILED EXTRACTION
 - TEXT (OCR): Extract every word with 100% fidelity. Maintain the original layout and hierarchy (headers, subheaders, body text).
 - ENTITIES: Identify and list specific names, dates, identification numbers, monetary values, and locations.
 - VISUALS: Describe any emblems, seals, stamps, barcodes, or signatures. Note if a signature appears digital or physical.
-- NON-ENGLISH TEXT: Provide a direct word-for-word translation for any non-English scripts detected (especially Kannada).
+- NON-ENGLISH TEXT: Provide a direct word-for-word translation for any non-English scripts detected.
 
 PHASE 3: VERIFICATION
 Review the extracted data against the raw image to ensure no 'hallucinations' or misreadings occurred.
@@ -149,27 +195,25 @@ FINAL OUTPUT:
 Provide a precise, factual breakdown. Do not be conversational. 
 If the image is low quality, state exactly which parts are illegible rather than guessing.
 """
-    
-        steps.append({"id": 2, "status": "Processing visual input...", "icon": "🖼️"})
         content = [
             {"type": "text", "text": f"{vision_prompt}\nUser Question: {user_message}"},
-            {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_b64}"}
+            # Fixed LangChain Image Dict format
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
         ]
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=content)]
     else:
-        steps.append({"id": 1, "status": "Checking local memory...", "icon": "🧠"})
+        steps.append({"id": 2, "status": "Checking local memory...", "icon": "🧠"})
         active_llm = llm
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
 
+    # 5d. Main Inference & Tool Execution Loop
     try:
-        # 3. First Inference
-        steps.append({"id": 2, "status": "Analyzing request...", "icon": "🔍"})
+        steps.append({"id": 3, "status": "Analyzing request...", "icon": "🔍"})
         ai_msg = await active_llm.ainvoke(messages)
         messages.append(ai_msg)
 
-        # 4. Handle Tool Calls (Only for non-vision or if vision model supports tools)
         if hasattr(ai_msg, 'tool_calls') and ai_msg.tool_calls:
-            steps.append({"id": 3, "status": "Searching the live web...", "icon": "🌐"})
+            steps.append({"id": 4, "status": "Searching the live web...", "icon": "🌐"})
             for tool_call in ai_msg.tool_calls:
                 try:
                     search_result = search_tool.run(tool_call["args"]["query"])
@@ -179,14 +223,17 @@ If the image is low quality, state exactly which parts are illegible rather than
                 except Exception as e:
                     messages.append(ToolMessage(content=f"Search Error: {str(e)}", tool_call_id=tool_call["id"]))
             
-            steps.append({"id": 4, "status": "Synthesizing answer...", "icon": "✨"})
+            steps.append({"id": 5, "status": "Synthesizing answer...", "icon": "✨"})
             ai_msg = await active_llm.ainvoke(messages)
 
-        # 5. Persistent History
+        # 5e. Memory Storage
         cursor.execute("INSERT INTO history (role, content) VALUES (?, ?)", ("user", user_message))
         cursor.execute("INSERT INTO history (role, content) VALUES (?, ?)", ("bot", ai_msg.content))
         conn.commit()
         conn.close()
+        
+        # Save to Chroma Vector DB inside the endpoint logic!
+        add_to_long_term_memory(f"User Asked: {user_message}\nMaya Answered: {ai_msg.content}")
         
         return {"reply": str(ai_msg.content), "steps": steps}
 
