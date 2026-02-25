@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+ollama
+duckduckgo-search
+langchain-ollama 
+langchain-community 
+pydantic==2.10.6
+langchain-tavily
