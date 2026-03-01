@@ -26,7 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY", "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")
+os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY", "your-tavily-api-key-here")
 
 search_tool = TavilySearch(
     max_results=3, 
