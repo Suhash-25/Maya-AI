@@ -14,6 +14,7 @@ from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from typing import Optional
+import platform
 
 app = FastAPI()
 
@@ -25,11 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------------------------------------------------
-# 1. API KEYS & TOOLS INITIALIZATION
-# ---------------------------------------------------------
-# IMPORTANT: Replace with your actual Tavily API key
-os.environ["TAVILY_API_KEY"] = "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"
+os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY", "your-tavily-api-key-here")
 
 search_tool = TavilySearch(
     max_results=3, 
@@ -44,9 +41,6 @@ class ChatInput(BaseModel):
     message: str
     image: Optional[str] = None
 
-# ---------------------------------------------------------
-# 2. DATABASE INITIALIZATION (SQLite & ChromaDB)
-# ---------------------------------------------------------
 def init_db():
     conn = sqlite3.connect('memory.db')
     cursor = conn.cursor()
@@ -67,29 +61,23 @@ def add_to_long_term_memory(text: str):
     """Indexes a new interaction into the vector database"""
     vector_db.add_texts([text])
 
-# ---------------------------------------------------------
-# 3. LLM INITIALIZATION
-# ---------------------------------------------------------
 try:
     llm = ChatOllama(model="llama3.1:8b", temperature=0).bind_tools([search_tool])
     vision_llm = ChatOllama(model="llama3.2-vision", temperature=0.0)
 except Exception as e:
     logging.error(f"Failed to initialize models: {e}")
 
-# ---------------------------------------------------------
-# 4. LOCAL ENGINE
-# ---------------------------------------------------------
 def get_cpp_intelligence(query_key: str):
     try:
-        exe_path = os.path.join("data_engine", "search.exe")
+        # Check OS: Use .exe for Windows, no extension for Linux
+        ext = ".exe" if platform.system() == "Windows" else ""
+        exe_path = os.path.join("engine", f"search_engine{ext}") 
+        
         result = subprocess.run([exe_path, query_key], capture_output=True, text=True, encoding='utf-8', timeout=5)
         return result.stdout.strip()
-    except Exception:
-        return "No data found. | User mood is NEUTRAL."
+    except Exception as e:
+        return f"No data found. | User mood is NEUTRAL. Error: {e}"
 
-# ---------------------------------------------------------
-# 5. API ENDPOINTS
-# ---------------------------------------------------------
 @app.get("/")
 async def health_check():
     return {"status": "Maya Backend is Live on 8080"}
@@ -101,7 +89,6 @@ async def chat(input_data: ChatInput):
     image_b64 = input_data.image
     steps = []
     
-    # 5a. Gather Context (Vector Memory, Local C++, SQLite)
     steps.append({"id": 1, "status": "Querying long-term memory...", "icon": "🗄️"})
     try:
         past_context = vector_db.similarity_search(user_message, k=3)
@@ -119,7 +106,6 @@ async def chat(input_data: ChatInput):
     cursor.execute("SELECT value FROM profile WHERE key='name'")
     user_name = cursor.fetchone()[0]
 
-    # 5b. The Elite System Prompt
     system_prompt = f"""<system_instructions>
 You are MAYA, a highly advanced, omni-capable AI assistant. Your architecture is designed to provide flawless, expert-level answers to ANY question the user asks.
 
@@ -169,7 +155,6 @@ Here is a component using composition and context:
 // code here
 </system_instructions>"""
 
-    # 5c. Build Messages (Vision vs Standard Text)
     if image_b64:
         steps.append({"id": 2, "status": "Performing Deep OCR Analysis...", "icon": "👁️"})
         active_llm = vision_llm
@@ -197,7 +182,6 @@ If the image is low quality, state exactly which parts are illegible rather than
 """
         content = [
             {"type": "text", "text": f"{vision_prompt}\nUser Question: {user_message}"},
-            # Fixed LangChain Image Dict format
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
         ]
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=content)]
@@ -206,7 +190,6 @@ If the image is low quality, state exactly which parts are illegible rather than
         active_llm = llm
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
 
-    # 5d. Main Inference & Tool Execution Loop
     try:
         steps.append({"id": 3, "status": "Analyzing request...", "icon": "🔍"})
         ai_msg = await active_llm.ainvoke(messages)
@@ -226,7 +209,6 @@ If the image is low quality, state exactly which parts are illegible rather than
             steps.append({"id": 5, "status": "Synthesizing answer...", "icon": "✨"})
             ai_msg = await active_llm.ainvoke(messages)
 
-        # 5e. Memory Storage
         cursor.execute("INSERT INTO history (role, content) VALUES (?, ?)", ("user", user_message))
         cursor.execute("INSERT INTO history (role, content) VALUES (?, ?)", ("bot", ai_msg.content))
         conn.commit()
