@@ -74,17 +74,16 @@ function App() {
     setAttachedFile(null);
 
     try {
-      const { data } = await axios.post('http://localhost:8080/chat', {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+      const { data } = await axios.post(API_URL + '/chat', {
         message: currentInput,
         image: base64Image
       });
-
-      // Catch steps from backend
+ 
       if (data.steps) {
         setActiveSteps(data.steps);
       }
 
-      // Small delay to let user see the final processing step
       setTimeout(() => {
         setHistory(prev => [...prev, {
           role: 'maya',

@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80" # Maps your browser's localhost:5173 to Nginx
+    depends_on:
+      - backend
+
+  backend:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    environment:
+      - TAVILY_API_KEY=tvly-your-real-api-key-here
+      - OLLAMA_HOST=http://ollama:11434 
+    volumes:
+      - backend-memory:/app/chroma_db
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+
+volumes:
+  ollama-models:
+  backend-memory:
