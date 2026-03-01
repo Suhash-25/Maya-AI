@@ -1,222 +1,193 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import axios from 'axios';
-import './App.css';
+import { useState, useRef, useEffect } from "react";
+import AnimatedBackground from "./layout/AnimatedBackground";
+import Header from "./layout/Header";
+import Sidebar from "./layout/Sidebar";
+import ChatWindow from "./components/Chat/ChatWindow";
+import InputBar from "./components/Input/InputBar";
+import Lightbox from "./components/UI/Lightbox";
+
+import { sendChatMessage } from "./services/chatService";
+import { convertToBase64 } from "./utils/fileUtils";
+import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
+import { useAutoScroll } from "./hooks/useAutoScroll";
+import { useSpeechSynthesis } from "./hooks/useSpeechSynthesis";
 
 function App() {
+  /* -------------------- GLOBAL STATES -------------------- */
+
   const [input, setInput] = useState("");
-  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [activeSteps, setActiveSteps] = useState([]);
   const [expandedImage, setExpandedImage] = useState(null);
   const [attachedFile, setAttachedFile] = useState(null);
+
+  /* -------------------- MULTI CHAT STATE -------------------- */
+
+  const [chats, setChats] = useState(() => {
+  const saved = localStorage.getItem("maya_chats");
+  return saved
+    ? JSON.parse(saved)
+    : [{ id: 1, title: "New Chat", messages: [] }];
+});
+
+const [activeChatId, setActiveChatId] = useState(() => {
+  const savedActive = localStorage.getItem("maya_active_chat");
+  return savedActive ? JSON.parse(savedActive) : 1;
+});
+
+useEffect(() => {
+  localStorage.setItem("maya_chats", JSON.stringify(chats));
+}, [chats]);
+
+useEffect(() => {
+  localStorage.setItem("maya_active_chat", JSON.stringify(activeChatId));
+}, [activeChatId]);
+
+  const activeChat = chats.find(chat => chat.id === activeChatId);
+
+  /* -------------------- REFS -------------------- */
+
   const scrollRef = useRef(null);
-  const recognitionRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.onresult = (e) => {
-        setInput(e.results[0][0].transcript);
-        setIsListening(false);
-      };
-      recognitionRef.current.onend = () => setIsListening(false);
-    }
-  }, []);
+  /* -------------------- CUSTOM HOOKS -------------------- */
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [history, loading, activeSteps]);
+  const recognitionRef = useSpeechRecognition(setInput, setIsListening);
+  const speak = useSpeechSynthesis();
+  useAutoScroll(scrollRef, [activeChat?.messages, loading, activeSteps]);
 
-  const speak = (text) => {
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voices = window.speechSynthesis.getVoices();
-    const femaleVoice = voices.find(v => v.name.includes("Female") || v.name.includes("Zira"));
-    if (femaleVoice) utterance.voice = femaleVoice;
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) setAttachedFile(file);
-  };
-
-  const convertToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = (error) => reject(error);
-    });
-  };
+  /* -------------------- SEND MESSAGE -------------------- */
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
 
     let base64Image = null;
     let imagePreview = null;
-    if (attachedFile && attachedFile.type.startsWith('image/')) {
+
+    if (attachedFile && attachedFile.type.startsWith("image/")) {
       imagePreview = URL.createObjectURL(attachedFile);
       base64Image = await convertToBase64(attachedFile);
     }
 
-    setHistory(prev => [...prev, { role: 'user', content: input, image: imagePreview }]);
-    setLoading(true);
-    setActiveSteps([]);
+    /* ---- Add USER message to active chat ---- */
+    setChats(prev =>
+      prev.map(chat =>
+        chat.id === activeChatId
+          ? {
+              ...chat,
+              messages: [
+                ...chat.messages,
+                { role: "user", content: input, image: imagePreview }
+              ]
+            }
+          : chat
+      )
+    );
+
     const currentInput = input;
     setInput("");
     setAttachedFile(null);
+    setLoading(true);
+    setActiveSteps([]);
 
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-      const { data } = await axios.post(API_URL + '/chat', {
-        message: currentInput,
-        image: base64Image
-      });
- 
+      /* ---- API CALL (UNCHANGED) ---- */
+      const data = await sendChatMessage(currentInput, base64Image);
+
       if (data.steps) {
         setActiveSteps(data.steps);
       }
 
       setTimeout(() => {
-        setHistory(prev => [...prev, {
-          role: 'maya',
-          content: data.reply || data.response,
-          source: data.source
-        }]);
+        /* ---- Add MAYA reply to active chat ---- */
+        setChats(prev =>
+          prev.map(chat =>
+            chat.id === activeChatId
+              ? {
+                  ...chat,
+                  messages: [
+                    ...chat.messages,
+                    {
+                      role: "maya",
+                      content: data.reply || data.response,
+                      source: data.source
+                    }
+                  ]
+                }
+              : chat
+          )
+        );
+
         speak(data.reply || data.response);
         setLoading(false);
         setActiveSteps([]);
-      }, 1000);
+      }, 800);
 
-    } catch {
-      console.error("Maya Offline.");
+    } catch (error) {
+      console.error("Maya Offline", error);
       setLoading(false);
     }
   };
 
+  /* -------------------- MIC HANDLER -------------------- */
+
   const handleMicClick = () => {
     setIsListening(true);
-    if (recognitionRef.current) {
-      recognitionRef.current.start();
-    }
+    recognitionRef.current?.start();
   };
 
+  /* -------------------- FILE HANDLER -------------------- */
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) setAttachedFile(file);
+  };
+
+  /* -------------------- RENDER -------------------- */
+
   return (
-    <div className="app-container">
-      {/* --- ADD THIS LIGHTBOX BLOCK --- */}
-      <AnimatePresence>
-        {expandedImage && (
-          <motion.div 
-            className="lightbox-overlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setExpandedImage(null)}
-          >
-            <motion.img 
-              src={expandedImage} 
-              initial={{ scale: 0.8 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.8 }}
-              className="lightbox-image"
-            />
-            <button className="lightbox-close">×</button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      {/* --- END LIGHTBOX BLOCK --- */}
-      <div className="aurora-bg">
-        <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 15, repeat: Infinity }} className="blob blob-blue" />
-        <motion.div animate={{ scale: [1.2, 1, 1.2] }} transition={{ duration: 18, repeat: Infinity }} className="blob blob-purple" />
+    <div className="h-screen flex text-white">
+      <AnimatedBackground />
+
+      {/* -------- Sidebar -------- */}
+      <Sidebar
+        chats={chats}
+        activeChatId={activeChatId}
+        setActiveChatId={setActiveChatId}
+        setChats={setChats}
+      />
+
+      {/* -------- Main Chat Area -------- */}
+      <div className="flex flex-col flex-1 relative">
+        <Lightbox
+          expandedImage={expandedImage}
+          setExpandedImage={setExpandedImage}
+        />
+
+        <Header />
+
+        <ChatWindow
+          history={activeChat?.messages || []}
+          loading={loading}
+          activeSteps={activeSteps}
+          scrollRef={scrollRef}
+          setExpandedImage={setExpandedImage}
+        />
+
+        <InputBar
+          input={input}
+          setInput={setInput}
+          sendMessage={sendMessage}
+          isListening={isListening}
+          handleMicClick={handleMicClick}
+          handleFileChange={handleFileChange}
+          attachedFile={attachedFile}
+          setAttachedFile={setAttachedFile}
+          fileInputRef={fileInputRef}
+          loading={loading}
+        />
       </div>
-
-      <main className="main-chat">
-        <header className="header">MAYA AI • LIVE AGENT</header>
-
-        <div className="chat-window" ref={scrollRef}>
-          {history.length === 0 ? (
-            <div className="welcome-screen">
-              <h1>Welcome, Suhash.</h1>
-              <p>Real-time data feed is active. Ask me anything about today.</p>
-            </div>
-          ) : (
-            history.map((msg, i) => (
-              <div key={i} className={`message ${msg.role === 'user' ? 'user-msg' : 'maya-msg'}`}>
-                <div className={`bubble ${msg.role === 'user' ? 'user-bubble' : 'maya-bubble'}`}>
-                  {msg.image && (
-  <div className="chat-image-container">
-    <img 
-      src={msg.image} 
-      alt="User upload" 
-      className="chat-inline-image clickable" 
-      onClick={() => setExpandedImage(msg.image)} 
-    />
-  </div>
-)}
-                  <div className="text-content">{msg.content}</div>
-                  {msg.source && <div className="source-tag">📡 {msg.source}</div>}
-                </div>
-              </div>
-            ))
-          )}
-
-          {/* GEMINI-STYLE PROCESSING STEPS */}
-          {loading && (
-            <div className="maya-msg">
-              <div className="bubble maya-bubble thinking-state">
-                <div className="steps-container">
-                  <AnimatePresence>
-                    {activeSteps.map((step, idx) => (
-                      <motion.div
-                        key={step.id}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.2 }}
-                        className="step-row"
-                      >
-                        <span className="step-icon">{step.icon}</span>
-                        <span className="step-text">{step.status}</span>
-                      </motion.div>
-                    ))}
-
-                  </AnimatePresence>
-                </div>
-                <div className="typing-dots">
-                  <span></span><span></span><span></span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="input-area">
-          <div className="input-pill">
-            <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} accept="image/*" />
-            <button className="icon-btn" onClick={() => fileInputRef.current?.click()}>📎</button>
-            <button className={`icon-btn ${isListening ? 'active-mic' : ''}`} onClick={handleMicClick}>🎤</button>
-            {attachedFile && (
-              <div className="file-tag">
-                Image Attached
-                <button onClick={() => setAttachedFile(null)}>×</button>
-              </div>
-            )}
-            <input
-              placeholder={attachedFile ? "Ask about this file..." : "Ask Maya anything...."}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-            />
-            <button className="send-btn" onClick={sendMessage} disabled={loading}>Send</button>
-          </div>
-        </div>
-      </main>
     </div>
   );
 }
