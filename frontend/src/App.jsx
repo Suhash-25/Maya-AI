@@ -37,12 +37,14 @@ const [activeChatId, setActiveChatId] = useState(() => {
 });
 
 useEffect(() => {
-  localStorage.setItem("maya_chats", JSON.stringify(chats));
-}, [chats]);
-
-useEffect(() => {
-  localStorage.setItem("maya_active_chat", JSON.stringify(activeChatId));
-}, [activeChatId]);
+    if (chats.length > 0 && !chats.find(c => c.id === activeChatId)) {
+      setActiveChatId(chats[0].id);
+    } else if (chats.length === 0) {
+      const newChat = { id: Date.now(), title: "New Chat", messages: [] };
+      setChats([newChat]);
+      setActiveChatId(newChat.id);
+    }
+  }, [chats, activeChatId]);
 
   const activeChat = chats.find(chat => chat.id === activeChatId);
 

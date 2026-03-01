@@ -62,7 +62,7 @@ def add_to_long_term_memory(text: str):
     vector_db.add_texts([text])
 
 try:
-    llm = ChatOllama(model="llama3.1:8b", temperature=0).bind_tools([search_tool])
+    llm = ChatOllama(model="llama3.2", temperature=0).bind_tools([search_tool])
     vision_llm = ChatOllama(model="llama3.2-vision", temperature=0.0)
 except Exception as e:
     logging.error(f"Failed to initialize models: {e}")
