@@ -4,6 +4,7 @@ import sqlite3
 import logging
 import uvicorn
 from fastapi import UploadFile, File, FastAPI, HTTPException
+from fastapi.responses import Response
 import shutil
 from datetime import datetime
 from pydantic import BaseModel
@@ -76,6 +77,10 @@ def get_cpp_intelligence(query_key: str):
         return result.stdout.strip()
     except Exception as e:
         return f"No data found. | User mood is NEUTRAL. Error: {e}"
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(content=b"", media_type="image/x-icon")
 
 @app.get("/")
 async def health_check():
