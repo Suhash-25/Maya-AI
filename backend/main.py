@@ -61,11 +61,21 @@ def add_to_long_term_memory(text: str):
     """Indexes a new interaction into the vector database"""
     vector_db.add_texts([text])
 
+OLLAMA_URL = os.getenv("OLLAMA_HOST", "http://ollama:11434")
+
 try:
-    llm = ChatOllama(model="llama3.2", temperature=0).bind_tools([search_tool])
-    vision_llm = ChatOllama(model="llama3.2-vision", temperature=0.0)
+    llm = ChatOllama(
+        model="llama3.2", 
+        temperature=0, 
+        base_url="http://ollama:11434"
+    )
 except Exception as e:
-    logging.error(f"Failed to initialize models: {e}")
+    print(f"Failed to initialize llm: {e}")
+    
+try:
+    vision_llm = ChatOllama(model="llama3.2-vision", temperature=0.0, base_url="http://ollama:11434")
+except Exception as e:
+    print(f"Failed to initialize vision_llm: {e}")
 
 def get_cpp_intelligence(query_key: str):
     try:
@@ -238,4 +248,4 @@ async def upload_file(file: UploadFile = File(...)):
     return {"filename": file.filename, "status": "File indexed for analysis"}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8080)
+    uvicorn.run(app, host="[IP_ADDRESS]", port=8080)
